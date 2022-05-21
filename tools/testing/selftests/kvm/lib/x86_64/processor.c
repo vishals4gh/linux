@@ -217,6 +217,38 @@ void virt_arch_pg_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr)
 	__virt_pg_map(vm, vaddr, paddr, PG_LEVEL_4K);
 }
 
+uint64_t *guest_code_get_pte(struct guest_pgt_info *gpgt_info, uint64_t vaddr)
+{
+	uint16_t index[4];
+	uint64_t *pml4e, *pdpe, *pde, *pte;
+	uint64_t pgt_paddr = get_cr3();
+	uint64_t page_size = gpgt_info->page_size;
+
+	index[0] = (vaddr >> 12) & 0x1ffu;
+	index[1] = (vaddr >> 21) & 0x1ffu;
+	index[2] = (vaddr >> 30) & 0x1ffu;
+	index[3] = (vaddr >> 39) & 0x1ffu;
+
+	pml4e = guest_code_get_pgt_vaddr(gpgt_info, pgt_paddr);
+	GUEST_ASSERT(pml4e && (pml4e[index[3]] & PTE_PRESENT_MASK));
+
+	pgt_paddr = (PTE_GET_PFN(pml4e[index[3]]) * page_size);
+	pdpe = guest_code_get_pgt_vaddr(gpgt_info, pgt_paddr);
+	GUEST_ASSERT(pdpe && (pdpe[index[2]] & PTE_PRESENT_MASK) &&
+		!(pdpe[index[2]] & PTE_LARGE_MASK));
+
+	pgt_paddr = (PTE_GET_PFN(pdpe[index[2]]) * page_size);
+	pde = guest_code_get_pgt_vaddr(gpgt_info, pgt_paddr);
+	GUEST_ASSERT(pde && (pde[index[1]] & PTE_PRESENT_MASK) &&
+		!(pde[index[1]] & PTE_LARGE_MASK));
+
+	pgt_paddr = (PTE_GET_PFN(pde[index[1]]) * page_size);
+	pte = guest_code_get_pgt_vaddr(gpgt_info, pgt_paddr);
+	GUEST_ASSERT(pte && (pte[index[0]] & PTE_PRESENT_MASK));
+
+	return (uint64_t *)&pte[index[0]];
+}
+
 static uint64_t *_vm_get_page_table_entry(struct kvm_vm *vm,
 					  struct kvm_vcpu *vcpu,
 					  uint64_t vaddr)
