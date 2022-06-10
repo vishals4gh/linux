@@ -981,7 +981,7 @@ static int kvm_vm_populate_private_mem(struct kvm *kvm, unsigned long gfn_start,
 	}
 
 	mutex_lock(&kvm->slots_lock);
-	for (gfn = gfn_start; gfn <= gfn_end; gfn++) {
+	for (gfn = gfn_start; gfn < gfn_end; gfn++) {
 		int order;
 		void *kvaddr;
 
@@ -1012,12 +1012,29 @@ err_ret:
 }
 #endif
 
+int kvm_vm_set_region_attr(struct kvm *kvm, unsigned long gfn_start,
+	unsigned long gfn_end, bool priv_attr)
+{
+	int r;
+	void *entry;
+	unsigned long index;
+
+	entry = priv_attr ? xa_mk_value(KVM_MEM_ATTR_PRIVATE) : NULL;
+
+	for (index = gfn_start; index < gfn_end; index++) {
+		r = xa_err(xa_store(&kvm->mem_attr_array, index, entry,
+				GFP_KERNEL_ACCOUNT));
+		if (r)
+			break;
+	}
+
+	return r;
+}
+
 static int kvm_vm_ioctl_set_encrypted_region(struct kvm *kvm, unsigned int ioctl,
 					     struct kvm_enc_region *region)
 {
 	unsigned long start, end;
-	unsigned long index;
-	void *entry;
 	int r;
 
 	if (region->size == 0 || region->addr + region->size < region->addr)
@@ -1026,22 +1043,14 @@ static int kvm_vm_ioctl_set_encrypted_region(struct kvm *kvm, unsigned int ioctl
 		return -EINVAL;
 
 	start = region->addr >> PAGE_SHIFT;
-	end = (region->addr + region->size - 1) >> PAGE_SHIFT;
-
-	entry = ioctl == KVM_MEMORY_ENCRYPT_REG_REGION ?
-				xa_mk_value(KVM_MEM_ATTR_PRIVATE) : NULL;
-
-	for (index = start; index <= end; index++) {
-		r = xa_err(xa_store(&kvm->mem_attr_array, index, entry,
-				GFP_KERNEL_ACCOUNT));
-		if (r)
-			break;
-	}
+	end = (region->addr + region->size) >> PAGE_SHIFT;
+	r = kvm_vm_set_region_attr(kvm, start, end,
+		(ioctl == KVM_MEMORY_ENCRYPT_REG_REGION));
 
 	kvm_zap_gfn_range(kvm, start, end + 1);
 
 #ifdef CONFIG_HAVE_KVM_PRIVATE_MEM_TESTING
-	if (!kvm->vm_entry_attempted && (ioctl == KVM_MEMORY_ENCRYPT_REG_REGION))
+	if (!r && !kvm->vm_entry_attempted && (ioctl == KVM_MEMORY_ENCRYPT_REG_REGION))
 		r = kvm_vm_populate_private_mem(kvm, start, end);
 #endif
 
