@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <linux/kernel.h>
+#include <linux/memfd.h>
 
 #define KVM_UTIL_MIN_PFN	2
 
@@ -921,6 +922,7 @@ void vm_userspace_mem_region_add(struct kvm_vm *vm,
 	struct userspace_mem_region *region;
 	size_t backing_src_pagesz = get_backing_src_pagesz(src_type);
 	size_t alignment;
+	int priv_memfd = -1;
 
 	TEST_ASSERT(vm_adjust_num_guest_pages(vm->mode, npages) == npages,
 		"Number of guest pages is not compatible with the host. "
@@ -1027,6 +1029,11 @@ void vm_userspace_mem_region_add(struct kvm_vm *vm,
 			    vm_mem_backing_src_alias(src_type)->name);
 	}
 
+	if (flags & KVM_MEM_PRIVATE) {
+		priv_memfd = memfd_create("vm_private_mem_", MFD_INACCESSIBLE);
+		TEST_ASSERT(priv_memfd != -1, "Failed to create private memfd");
+	}
+
 	region->unused_phy_pages = sparsebit_alloc();
 	region->encrypted_phy_pages = sparsebit_alloc();
 	sparsebit_set_num(region->unused_phy_pages,
@@ -1036,7 +1043,9 @@ void vm_userspace_mem_region_add(struct kvm_vm *vm,
 	region->region.guest_phys_addr = guest_paddr;
 	region->region.memory_size = npages * vm->page_size;
 	region->region.userspace_addr = (uintptr_t) region->host_mem;
-	ret = ioctl(vm->fd, KVM_SET_USER_MEMORY_REGION, &region->region);
+	region->region_ext.private_fd = priv_memfd;
+	region->region_ext.private_offset = 0;
+	ret = ioctl(vm->fd, KVM_SET_USER_MEMORY_REGION, &region->region_ext);
 	TEST_ASSERT(ret == 0, "KVM_SET_USER_MEMORY_REGION IOCTL failed,\n"
 		"  rc: %i errno: %i\n"
 		"  slot: %u flags: 0x%x\n"
@@ -1094,6 +1103,23 @@ memslot2region(struct kvm_vm *vm, uint32_t memslot)
 	vm_dump(stderr, vm, 2);
 	TEST_FAIL("Mem region not found");
 	return NULL;
+}
+
+void vm_back_priv_memfd(struct kvm_vm *vm, uint32_t memslot,
+	uint32_t gpa, uint32_t size)
+{
+	struct userspace_mem_region *region = memslot2region(vm, memslot);
+	int priv_memfd;
+	uint64_t priv_offset;
+
+	TEST_ASSERT(region->region.flags & KVM_MEM_PRIVATE,
+		"memslot %d is not private\n", memslot);
+	priv_memfd = region->region_ext.private_fd;
+	priv_offset = region->region_ext.private_offset;
+
+	int ret = fallocate(priv_memfd, 0,
+		priv_offset + (gpa - region->region.guest_phys_addr), size);
+	TEST_ASSERT(ret == 0, "fallocate failed\n");
 }
 
 /*
@@ -1538,7 +1564,7 @@ vm_vaddr_t vm_setup_pgt_info_buf(struct kvm_vm *vm, vm_vaddr_t vaddr_min)
 	uint64_t info_size = sizeof(*gpgt_info) +
 		(sizeof(uint64_t) * vm->num_pgt_pages);
 	uint64_t num_pages = align_up(info_size, vm->page_size);
-	vm_vaddr_t buf_start = vm_vaddr_alloc_shared(vm, num_pages, vaddr_min);
+	vm_vaddr_t buf_start = vm_vaddr_alloc(vm, num_pages, vaddr_min);
 	uint32_t i = 0;
 
 	gpgt_info = (struct guest_pgt_info *)addr_gva2hva(vm, buf_start);

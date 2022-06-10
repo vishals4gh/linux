@@ -97,7 +97,7 @@ static void sev_encrypt(struct sev_vm *sev)
 	const struct sparsebit *enc_phy_pages;
 	struct kvm_vm *vm = sev->vm;
 	sparsebit_idx_t pg = 0;
-	vm_paddr_t gpa_start;
+	vm_paddr_t gpa_start, gpa;
 	uint64_t memory_size;
 
 	/* Only memslot 0 supported for now. */
@@ -116,8 +116,9 @@ static void sev_encrypt(struct sev_vm *sev)
 		if (pg_cnt <= 0)
 			pg_cnt = 1;
 
-		sev_encrypt_phy_range(sev,
-				      gpa_start + pg * vm_get_page_size(vm),
+		gpa = gpa_start + pg * vm_get_page_size(vm);
+		vm_back_priv_memfd(vm, 0, gpa, pg_cnt * vm_get_page_size(vm));
+		sev_encrypt_phy_range(sev, gpa,
 				      pg_cnt * vm_get_page_size(vm));
 		pg += pg_cnt;
 	}
@@ -188,9 +189,7 @@ struct sev_vm *sev_vm_create(uint32_t policy, uint64_t npages)
 		kvm_sev_ioctl(sev, KVM_SEV_INIT, NULL);
 
 	vm_set_memory_encryption(vm, true, true, sev->enc_bit);
-	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, 0, 0, npages, 0);
-	sev_register_user_region(sev, addr_gpa2hva(vm, 0),
-				 npages * vm_get_page_size(vm));
+	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, 0, 0, npages, KVM_MEM_PRIVATE);
 
 	pr_info("%s guest created, policy: 0x%x, size: %lu KB\n",
 		(sev->sev_policy & SEV_POLICY_ES) ? "SEV-ES" : "SEV",
