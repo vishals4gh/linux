@@ -1361,6 +1361,12 @@ void kvm_inc_notifier_count(struct kvm *kvm, unsigned long start,
 void kvm_dec_notifier_count(struct kvm *kvm, unsigned long start,
 				   unsigned long end);
 
+typedef int (*kvm_hva_range_op_t)(struct kvm *kvm,
+				struct kvm_gfn_range *range, void *data);
+
+int kvm_vm_do_hva_range_op(struct kvm *kvm, unsigned long hva_start,
+		unsigned long hva_end, kvm_hva_range_op_t handler, void *data);
+
 long kvm_arch_dev_ioctl(struct file *filp,
 			unsigned int ioctl, unsigned long arg);
 long kvm_arch_vcpu_ioctl(struct file *filp,
