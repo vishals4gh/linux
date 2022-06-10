@@ -331,11 +331,18 @@ static void pmsat_guest_code(struct ucall *uc, uint8_t enc_bit_shift,
 	void *ghcb_gva)
 {
 	void *shared_mem = (void *)TEST_MEM_GPA;
+	int ret;
 
 	g_ghcb_gva = ghcb_gva;
 	g_ghcb_gpa = ghcb_gpa;
 	GUEST_SHARED_SYNC(uc, PMSAT_GUEST_STARTED);
 	guest_verify_sev_vm_boot(uc, g_ghcb_gva != NULL);
+
+	/* Mark the GPA range to be treated as always accessed as shared */
+	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, TEST_MEM_GPA,
+		mem_size >> MIN_PAGE_SHIFT, KVM_CLR_GPA_RANGE_ENC_ACCESS, 0);
+	GUEST_SHARED_ASSERT_1(uc, ret == 0, ret);
+
 	GUEST_SHARED_ASSERT(uc, do_mem_op(VERIFY_PAT, shared_mem,
 			TEST_MEM_DATA_PAT1, mem_size));
 
@@ -404,11 +411,17 @@ static void smsat_guest_code(struct ucall *uc, uint8_t enc_bit_shift,
 	void *ghcb_gva)
 {
 	void *shared_mem = (void *)TEST_MEM_GPA;
+	int ret;
 
 	g_ghcb_gva = ghcb_gva;
 	g_ghcb_gpa = ghcb_gpa;
 	GUEST_SHARED_SYNC(uc, SMSAT_GUEST_STARTED);
 	guest_verify_sev_vm_boot(uc, g_ghcb_gva != NULL);
+	/* Mark the GPA range to be treated as always accessed as shared */
+	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, TEST_MEM_GPA,
+		mem_size >> MIN_PAGE_SHIFT, KVM_CLR_GPA_RANGE_ENC_ACCESS, 0);
+	GUEST_SHARED_ASSERT_1(uc, ret == 0, ret);
+
 	GUEST_SHARED_ASSERT(uc, do_mem_op(VERIFY_PAT, shared_mem,
 			TEST_MEM_DATA_PAT1, mem_size));
 
@@ -606,8 +619,8 @@ static void psat_guest_code(struct ucall *uc, uint8_t enc_bit_shift,
 	guest_set_clr_pte_bit(uc, gpgt_info, TEST_MEM_GPA, mem_size, false,
 		enc_bit_shift);
 	/* Mark no GPA range to be treated as accessed privately */
-	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, 0, 0,
-		KVM_MARK_GPA_RANGE_ENC_ACCESS, 0);
+	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, TEST_MEM_GPA,
+		mem_size >> MIN_PAGE_SHIFT, KVM_CLR_GPA_RANGE_ENC_ACCESS, 0);
 	GUEST_SHARED_ASSERT_1(uc, ret == 0, ret);
 	GUEST_SHARED_ASSERT(uc, do_mem_op(SET_PAT, shared_mem,
 			TEST_MEM_DATA_PAT2, mem_size));
@@ -707,6 +720,11 @@ static void spat_guest_code(struct ucall *uc, uint8_t enc_bit_shift,
 	g_ghcb_gpa = ghcb_gpa;
 	GUEST_SHARED_SYNC(uc, SPAT_GUEST_STARTED);
 	guest_verify_sev_vm_boot(uc, g_ghcb_gva != NULL);
+
+	/* Mark the GPA range to be treated as always accessed shared */
+	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, TEST_MEM_GPA,
+		mem_size >> MIN_PAGE_SHIFT, KVM_CLR_GPA_RANGE_ENC_ACCESS, 0);
+	GUEST_SHARED_ASSERT_1(uc, ret == 0, ret);
 	GUEST_SHARED_ASSERT(uc, do_mem_op(VERIFY_PAT, shared_mem,
 			TEST_MEM_DATA_PAT1, mem_size));
 	GUEST_SHARED_ASSERT(uc, do_mem_op(SET_PAT, shared_mem,
@@ -844,8 +862,8 @@ static void pspahct_guest_code(struct ucall *uc, uint8_t enc_bit_shift,
 	/* Mark the GPA range to be treated as always accessed via shared
 	 * access
 	 */
-	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, 0, 0,
-		KVM_MARK_GPA_RANGE_ENC_ACCESS, 0);
+	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, TEST_MEM_GPA,
+		mem_size >> MIN_PAGE_SHIFT, KVM_CLR_GPA_RANGE_ENC_ACCESS, 0);
 	GUEST_SHARED_ASSERT_1(uc, ret == 0, ret);
 
 	GUEST_SHARED_ASSERT(uc, do_mem_op(VERIFY_PAT, test_mem,
@@ -977,8 +995,8 @@ static void psawdat_guest_code(struct ucall *uc, uint8_t enc_bit_shift,
 	/* Mark the GPA range to be treated as always accessed via shared
 	 * access
 	 */
-	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, 0, 0,
-		KVM_MARK_GPA_RANGE_ENC_ACCESS, 0);
+	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, TEST_MEM_GPA,
+		mem_size >> MIN_PAGE_SHIFT, KVM_CLR_GPA_RANGE_ENC_ACCESS, 0);
 	GUEST_SHARED_ASSERT_1(uc, ret == 0, ret);
 
 	GUEST_SHARED_ASSERT(uc, do_mem_op(SET_PAT, test_mem,
@@ -1019,8 +1037,8 @@ static void psawdat_guest_code(struct ucall *uc, uint8_t enc_bit_shift,
 	/* Mark the GPA range to be treated as always accessed via shared
 	 * access
 	 */
-	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, 0, 0,
-		KVM_MARK_GPA_RANGE_ENC_ACCESS, 0);
+	ret = guest_hypercall(KVM_HC_MAP_GPA_RANGE, TEST_MEM_GPA,
+		mem_size >> MIN_PAGE_SHIFT, KVM_CLR_GPA_RANGE_ENC_ACCESS, 0);
 	GUEST_SHARED_ASSERT_1(uc, ret == 0, ret);
 
 	GUEST_SHARED_ASSERT(uc, do_mem_op(SET_PAT, test_mem,
