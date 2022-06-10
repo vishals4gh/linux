@@ -321,9 +321,6 @@ struct kvm_vcpu {
 	u64 requests;
 	unsigned long guest_debug;
 
-	uint64_t priv_gfn;
-	uint64_t priv_pages;
-
 	struct mutex mutex;
 	struct kvm_run *run;
 
@@ -572,6 +569,7 @@ struct kvm_memory_slot {
 	gfn_t base_gfn;
 	unsigned long npages;
 	unsigned long *dirty_bitmap;
+	unsigned long *private_bitmap;
 	struct kvm_arch_memory_slot arch;
 	unsigned long userspace_addr;
 	u32 flags;

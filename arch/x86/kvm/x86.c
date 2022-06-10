@@ -9288,20 +9288,49 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		break;
 	case KVM_HC_MAP_GPA_RANGE: {
 		u64 gpa = a0, npages = a1, attrs = a2;
+		struct kvm_memory_slot *memslot;
+		u64 gfn;
 
 		ret = -KVM_ENOSYS;
 		if (!(vcpu->kvm->arch.hypercall_exit_enabled & (1 << KVM_HC_MAP_GPA_RANGE)))
 			break;
 
-		if (!PAGE_ALIGNED(gpa) ||
-			gpa_to_gfn(gpa) + npages < gpa_to_gfn(gpa)) {
+		gfn = gpa_to_gfn(gpa);
+		if (!PAGE_ALIGNED(gpa) || (gfn + npages < gfn)) {
 			ret = -KVM_EINVAL;
 			break;
 		}
 
-		if (attrs & KVM_MARK_GPA_RANGE_ENC_ACCESS) {
-			vcpu->priv_gfn = gpa_to_gfn(gpa);
-			vcpu->priv_pages = npages;
+		if (attrs & (KVM_MARK_GPA_RANGE_ENC_ACCESS |
+			KVM_CLR_GPA_RANGE_ENC_ACCESS)) {
+			memslot = gfn_to_memslot(vcpu->kvm, gfn);
+			if (!memslot) {
+				pr_err("memslot doesn't exist for 0x%lx\n", gfn);
+				ret = -KVM_EINVAL;
+				break;
+			}
+
+			if (!kvm_slot_is_private(memslot))
+			{
+				pr_err("memslot not private for 0x%lx\n", gfn);
+				ret = -KVM_EINVAL;
+				break;
+			}
+
+			if (memslot->npages - (gfn - memslot->base_gfn) < npages) {
+				pr_err("memslot length insufficient for gfn 0x%lx pages 0x%lx\n",
+				gfn, npages);
+				ret = -KVM_EINVAL;
+				break;
+			}
+
+			if (attrs & KVM_MARK_GPA_RANGE_ENC_ACCESS) {
+				bitmap_set(memslot->private_bitmap, (gfn - memslot->base_gfn),
+				npages);
+			} else {
+				bitmap_clear(memslot->private_bitmap, (gfn - memslot->base_gfn),
+				npages);
+			}
 			ret = 0;
 			break;
 		}

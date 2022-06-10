@@ -951,12 +951,22 @@ static void kvm_destroy_dirty_bitmap(struct kvm_memory_slot *memslot)
 	memslot->dirty_bitmap = NULL;
 }
 
+static void kvm_destroy_private_bitmap(struct kvm_memory_slot *memslot)
+{
+	if (!memslot->private_bitmap)
+		return;
+
+	kvfree(memslot->private_bitmap);
+	memslot->private_bitmap = NULL;
+}
+
 /* This does not remove the slot from struct kvm_memslots data structures */
 static void kvm_free_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {
 	if (slot->flags & KVM_MEM_PRIVATE) {
 		kvm_private_mem_unregister(slot);
 		fput(slot->private_file);
+		kvm_destroy_private_bitmap(slot);
 	}
 
 	kvm_destroy_dirty_bitmap(slot);
@@ -1376,6 +1386,17 @@ static int kvm_alloc_dirty_bitmap(struct kvm_memory_slot *memslot)
 	return 0;
 }
 
+static int kvm_alloc_private_bitmap(struct kvm_memory_slot *memslot)
+{
+	unsigned long shared_bytes = kvm_dirty_bitmap_bytes(memslot);
+
+	memslot->private_bitmap = __vcalloc(1, shared_bytes, GFP_KERNEL_ACCOUNT);
+	if (!memslot->private_bitmap)
+		return -ENOMEM;
+
+	return 0;
+}
+
 static struct kvm_memslots *kvm_get_inactive_memslots(struct kvm *kvm, int as_id)
 {
 	struct kvm_memslots *active = __kvm_memslots(kvm, as_id);
@@ -1600,6 +1621,10 @@ static int kvm_prepare_memory_region(struct kvm *kvm,
 	int r;
 
 	if (change == KVM_MR_CREATE && new->flags & KVM_MEM_PRIVATE) {
+		r = kvm_alloc_private_bitmap(new);
+		if (r)
+			return r;
+
 		r = kvm_private_mem_register(new);
 		if (r)
 			return r;
@@ -1633,8 +1658,10 @@ static int kvm_prepare_memory_region(struct kvm *kvm,
 	if (r && new && new->dirty_bitmap && old && !old->dirty_bitmap)
 		kvm_destroy_dirty_bitmap(new);
 
-	if (r && change == KVM_MR_CREATE && new->flags & KVM_MEM_PRIVATE)
-	    kvm_private_mem_unregister(new);
+	if (r && change == KVM_MR_CREATE && new->flags & KVM_MEM_PRIVATE) {
+		kvm_private_mem_unregister(new);
+		kvm_destroy_private_bitmap(new);
+	}
 
 	return r;
 }
