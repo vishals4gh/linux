@@ -576,7 +576,7 @@ static struct page **sev_pin_memory(struct kvm *kvm, unsigned long uaddr,
 {
 	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	unsigned long npages, size;
-	int npinned;
+	int npinned = 0;
 	unsigned long locked, lock_limit;
 	struct page **pages;
 	unsigned long first, last;
@@ -2181,7 +2181,7 @@ static int snp_launch_update_upm(struct kvm *kvm, struct kvm_sev_cmd *argp)
 			return -EINVAL;
 		}
 
-		if (snp_lookup_rmpentry(pfn, &level) != 0) {
+		if (snp_lookup_rmpentry(pfns[i], &level) != 0) {
 			pr_err("SEV: Failure ensuring gfn 0x%llx is in initial shared state.\n", gfn);
 			return -EFAULT;
 		}
@@ -4413,7 +4413,7 @@ static int sev_handle_vmgexit_msr_protocol(struct vcpu_svm *svm)
 			vcpu->run->vmgexit.ghcb_msr = control->ghcb_gpa;
 			vcpu->arch.complete_userspace_io = snp_complete_psc_msr_protocol;
 
-			ret = -1;
+			ret = 0;
 		} else {
 			gfn_t gfn;
 			int ret;
