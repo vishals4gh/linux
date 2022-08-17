@@ -920,6 +920,7 @@ static int kvm_vm_ioctl_set_encrypted_region(struct kvm *kvm, unsigned int ioctl
 					     struct kvm_enc_region *region)
 {
 	unsigned long start, end;
+	unsigned long index;
 	void *entry;
 	int r;
 
@@ -934,8 +935,12 @@ static int kvm_vm_ioctl_set_encrypted_region(struct kvm *kvm, unsigned int ioctl
 	entry = ioctl == KVM_MEMORY_ENCRYPT_REG_REGION ?
 				xa_mk_value(KVM_MEM_ATTR_PRIVATE) : NULL;
 
-	r = xa_err(xa_store_range(&kvm->mem_attr_array, start, end,
-					entry, GFP_KERNEL_ACCOUNT));
+	for (index = start; index <= end; index++) {
+		r = xa_err(xa_store(&kvm->mem_attr_array, index, entry,
+				GFP_KERNEL_ACCOUNT));
+		if (r)
+			break;
+	}
 
 	kvm_zap_gfn_range(kvm, start, end + 1);
 
