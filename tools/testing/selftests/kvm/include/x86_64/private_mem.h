@@ -49,5 +49,6 @@ struct vm_setup_info {
 };
 
 void execute_vm_with_private_mem(struct vm_setup_info *info);
+void execute_sev_vm_with_private_mem(struct vm_setup_info *info);
 
 #endif /* SELFTEST_KVM_PRIVATE_MEM_H */

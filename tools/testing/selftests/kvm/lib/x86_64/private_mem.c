@@ -348,3 +348,89 @@ void execute_vm_with_private_mem(struct vm_setup_info *info)
 	ucall_uninit(vm);
 	kvm_vm_free(vm);
 }
+
+/*
+ * Execute Sev vm with private memory memslots.
+ *
+ * Input Args:
+ *   info - pointer to a structure containing information about setting up a SEV
+ *   VM with private memslots
+ *
+ * Output Args: None
+ *
+ * Return: None
+ *
+ * Function called by host userspace logic in selftests to execute SEV vm
+ * logic. It will install two memslots:
+ * 1) memslot 0 : containing all the boot code/stack pages
+ * 2) test_mem_slot : containing the region of memory that would be used to test
+ *   private/shared memory accesses to a memory backed by private memslots
+ */
+void execute_sev_vm_with_private_mem(struct vm_setup_info *info)
+{
+	uint8_t measurement[512];
+	struct sev_vm *sev;
+	struct kvm_vm *vm;
+	struct kvm_enable_cap cap;
+	struct kvm_vcpu *vcpu;
+	uint32_t memslot0_pages = info->memslot0_pages;
+	uint64_t test_area_gpa, test_area_size;
+	struct test_setup_info *test_info = &info->test_info;
+
+	sev = sev_vm_create_with_flags(info->policy, memslot0_pages, KVM_MEM_PRIVATE);
+	TEST_ASSERT(sev, "Sev VM creation failed");
+	vm = sev_get_vm(sev);
+	vm->use_ucall_pool = true;
+	vm_set_pgt_alloc_tracking(vm);
+	vm_create_irqchip(vm);
+
+	TEST_ASSERT(info->guest_fn, "guest_fn not present");
+	vcpu = vm_vcpu_add(vm, 0, info->guest_fn);
+	kvm_vm_elf_load(vm, program_invocation_name);
+
+	vm_check_cap(vm, KVM_CAP_EXIT_HYPERCALL);
+	cap.cap = KVM_CAP_EXIT_HYPERCALL;
+	cap.flags = 0;
+	cap.args[0] = (1 << KVM_HC_MAP_GPA_RANGE);
+	vm_ioctl(vm, KVM_ENABLE_CAP, &cap);
+
+	TEST_ASSERT(test_info->test_area_size, "Test mem size not present");
+
+	test_area_size = test_info->test_area_size;
+	test_area_gpa = test_info->test_area_gpa;
+	vm_userspace_mem_region_add(vm, test_info->test_area_mem_src, test_area_gpa,
+		test_info->test_area_slot, test_area_size / vm->page_size,
+		KVM_MEM_PRIVATE);
+	vm_update_private_mem(vm, test_area_gpa, test_area_size, ALLOCATE_MEM);
+
+	virt_map(vm, test_area_gpa, test_area_gpa, test_area_size/vm->page_size);
+
+	vm_map_page_table(vm, GUEST_PGT_MIN_VADDR);
+	sev_gpgt_info = (struct guest_pgt_info *)vm_setup_pgt_info_buf(vm,
+			GUEST_PGT_MIN_VADDR);
+	sev_enc_bit = sev_get_enc_bit(sev);
+	is_sev_vm = true;
+	sync_global_to_guest(vm, sev_enc_bit);
+	sync_global_to_guest(vm, sev_gpgt_info);
+	sync_global_to_guest(vm, is_sev_vm);
+
+	vm_update_private_mem_internal(vm, 0, (memslot0_pages << MIN_PAGE_SHIFT),
+		ALLOCATE_MEM, false);
+
+	/* Allocations/setup done. Encrypt initial guest payload. */
+	sev_vm_launch(sev);
+
+	/* Dump the initial measurement. A test to actually verify it would be nice. */
+	sev_vm_launch_measure(sev, measurement);
+	pr_info("guest measurement: ");
+	for (uint32_t i = 0; i < 32; ++i)
+		pr_info("%02x", measurement[i]);
+	pr_info("\n");
+
+	sev_vm_launch_finish(sev);
+
+	vcpu_work(vm, vcpu, info);
+
+	sev_vm_free(sev);
+	is_sev_vm = false;
+}
