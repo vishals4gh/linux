@@ -22,12 +22,45 @@
 #include <kvm_util.h>
 #include <private_mem.h>
 #include <processor.h>
+#include <sev.h>
+
+#define GUEST_PGT_MIN_VADDR	0x10000
+
+/* Variables populated by userspace logic and consumed by guest code */
+static bool is_sev_vm;
+static struct guest_pgt_info *sev_gpgt_info;
+static uint8_t sev_enc_bit;
+
+static void sev_guest_set_clr_pte_bit(uint64_t vaddr_start, uint64_t mem_size,
+	bool set)
+{
+	uint64_t vaddr = vaddr_start;
+	uint32_t guest_page_size = sev_gpgt_info->page_size;
+	uint32_t num_pages;
+
+	GUEST_ASSERT(!(mem_size % guest_page_size) && !(vaddr_start %
+		guest_page_size));
+
+	num_pages = mem_size / guest_page_size;
+	for (uint32_t i = 0; i < num_pages; i++) {
+		uint64_t *pte = guest_code_get_pte(sev_gpgt_info, vaddr);
+
+		GUEST_ASSERT(pte);
+		if (set)
+			*pte |= (1ULL << sev_enc_bit);
+		else
+			*pte &= ~(1ULL << sev_enc_bit);
+		asm volatile("invlpg (%0)" :: "r"(vaddr) : "memory");
+		vaddr += guest_page_size;
+	}
+}
 
 /*
  * Execute KVM hypercall to change memory access type for a given gpa range.
  *
  * Input Args:
  *   type - memory conversion type TO_SHARED/TO_PRIVATE
+ *   gva - starting gva address
  *   gpa - starting gpa address
  *   size - size of the range starting from gpa for which memory access needs
  *     to be changed
@@ -40,9 +73,12 @@
  * for a given gpa range. This API is useful in exercising implicit conversion
  * path.
  */
-void guest_update_mem_access(enum mem_conversion_type type, uint64_t gpa,
-	uint64_t size)
+void guest_update_mem_access(enum mem_conversion_type type, uint64_t gva,
+	uint64_t gpa, uint64_t size)
 {
+	if (is_sev_vm)
+		sev_guest_set_clr_pte_bit(gva, size, type == TO_PRIVATE ? true : false);
+
 	int ret = kvm_hypercall(KVM_HC_MAP_GPA_RANGE, gpa, size >> MIN_PAGE_SHIFT,
 		type == TO_PRIVATE ? KVM_MARK_GPA_RANGE_ENC_ACCESS :
 			KVM_CLR_GPA_RANGE_ENC_ACCESS, 0);
@@ -54,6 +90,7 @@ void guest_update_mem_access(enum mem_conversion_type type, uint64_t gpa,
  *
  * Input Args:
  *   type - memory conversion type TO_SHARED/TO_PRIVATE
+ *   gva - starting gva address
  *   gpa - starting gpa address
  *   size - size of the range starting from gpa for which memory type needs
  *     to be changed
@@ -65,9 +102,12 @@ void guest_update_mem_access(enum mem_conversion_type type, uint64_t gpa,
  * Function called by guest logic in selftests to update the memory type for a
  * given gpa range. This API is useful in exercising explicit conversion path.
  */
-void guest_update_mem_map(enum mem_conversion_type type, uint64_t gpa,
-	uint64_t size)
+void guest_update_mem_map(enum mem_conversion_type type, uint64_t gva,
+	uint64_t gpa, uint64_t size)
 {
+	if (is_sev_vm)
+		sev_guest_set_clr_pte_bit(gva, size, type == TO_PRIVATE ? true : false);
+
 	int ret = kvm_hypercall(KVM_HC_MAP_GPA_RANGE, gpa, size >> MIN_PAGE_SHIFT,
 		type == TO_PRIVATE ? KVM_MAP_GPA_RANGE_ENCRYPTED :
 			KVM_MAP_GPA_RANGE_DECRYPTED, 0);
@@ -90,30 +130,15 @@ void guest_update_mem_map(enum mem_conversion_type type, uint64_t gpa,
 void guest_map_ucall_page_shared(void)
 {
 	vm_paddr_t ucall_paddr = get_ucall_pool_paddr();
+	GUEST_ASSERT(ucall_paddr);
 
-	guest_update_mem_access(TO_SHARED, ucall_paddr, 1 << MIN_PAGE_SHIFT);
+	int ret = kvm_hypercall(KVM_HC_MAP_GPA_RANGE, ucall_paddr, 1,
+		KVM_MAP_GPA_RANGE_DECRYPTED, 0);
+	GUEST_ASSERT_1(!ret, ret);
 }
 
-/*
- * Execute KVM ioctl to back/unback private memory for given gpa range.
- *
- * Input Args:
- *   vm - kvm_vm handle
- *   gpa - starting gpa address
- *   size - size of the gpa range
- *   op - mem_op indicating whether private memory needs to be allocated or
- *     unbacked
- *
- * Output Args: None
- *
- * Return: None
- *
- * Function called by host userspace logic in selftests to back/unback private
- * memory for gpa ranges. This function is useful to setup initial boot private
- * memory and then convert memory during runtime.
- */
-void vm_update_private_mem(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
-	enum mem_op op)
+static void vm_update_private_mem_internal(struct kvm_vm *vm, uint64_t gpa,
+	uint64_t size, enum mem_op op, bool encrypt)
 {
 	int priv_memfd;
 	uint64_t priv_offset, guest_phys_base, fd_offset;
@@ -142,6 +167,10 @@ void vm_update_private_mem(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
 	TEST_ASSERT(ret == 0, "fallocate failed\n");
 	enc_region.addr = gpa;
 	enc_region.size = size;
+
+	if (!encrypt)
+		return;
+
 	if (op == ALLOCATE_MEM) {
 		printf("doing encryption for gpa 0x%lx size 0x%lx\n", gpa, size);
 		vm_ioctl(vm, KVM_MEMORY_ENCRYPT_REG_REGION, &enc_region);
@@ -149,6 +178,30 @@ void vm_update_private_mem(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
 		printf("undoing encryption for gpa 0x%lx size 0x%lx\n", gpa, size);
 		vm_ioctl(vm, KVM_MEMORY_ENCRYPT_UNREG_REGION, &enc_region);
 	}
+}
+
+/*
+ * Execute KVM ioctl to back/unback private memory for given gpa range.
+ *
+ * Input Args:
+ *   vm - kvm_vm handle
+ *   gpa - starting gpa address
+ *   size - size of the gpa range
+ *   op - mem_op indicating whether private memory needs to be allocated or
+ *     unbacked
+ *
+ * Output Args: None
+ *
+ * Return: None
+ *
+ * Function called by host userspace logic in selftests to back/unback private
+ * memory for gpa ranges. This function is useful to setup initial boot private
+ * memory and then convert memory during runtime.
+ */
+void vm_update_private_mem(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
+	enum mem_op op)
+{
+	vm_update_private_mem_internal(vm, gpa, size, op, true /* encrypt */);
 }
 
 static void handle_vm_exit_map_gpa_hypercall(struct kvm_vm *vm,

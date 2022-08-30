@@ -14,10 +14,10 @@ enum mem_conversion_type {
 	TO_SHARED
 };
 
-void guest_update_mem_access(enum mem_conversion_type type, uint64_t gpa,
-	uint64_t size);
-void guest_update_mem_map(enum mem_conversion_type type, uint64_t gpa,
-	uint64_t size);
+void guest_update_mem_access(enum mem_conversion_type type, uint64_t gva,
+	uint64_t gpa, uint64_t size);
+void guest_update_mem_map(enum mem_conversion_type type, uint64_t gva,
+	uint64_t gpa, uint64_t size);
 
 void guest_map_ucall_page_shared(void);
 
@@ -45,6 +45,7 @@ struct vm_setup_info {
 	struct test_setup_info test_info;
 	guest_code_fn guest_fn;
 	io_exit_handler ioexit_cb;
+	uint32_t policy; /* Used for Sev VMs */
 };
 
 void execute_vm_with_private_mem(struct vm_setup_info *info);
