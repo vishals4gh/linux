@@ -171,7 +171,8 @@ void sev_vm_free(struct sev_vm *sev)
 	free(sev);
 }
 
-struct sev_vm *sev_vm_create(uint32_t policy, uint64_t npages)
+struct sev_vm *sev_vm_create_with_flags(uint32_t policy, uint64_t npages,
+	uint32_t memslot_flags)
 {
 	struct sev_vm *sev;
 	struct kvm_vm *vm;
@@ -188,14 +189,22 @@ struct sev_vm *sev_vm_create(uint32_t policy, uint64_t npages)
 	vm->vpages_mapped = sparsebit_alloc();
 	vm_set_memory_encryption(vm, true, true, sev->enc_bit);
 	pr_info("SEV cbit: %d\n", sev->enc_bit);
-	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, 0, 0, npages, 0);
-	sev_register_user_region(sev, addr_gpa2hva(vm, 0),
+	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, 0, 0, npages,
+		memslot_flags);
+	if (!(memslot_flags & KVM_MEM_PRIVATE)) {
+		sev_register_user_region(sev, addr_gpa2hva(vm, 0),
 				 npages * vm->page_size);
+	}
 
 	pr_info("SEV guest created, policy: 0x%x, size: %lu KB\n",
 		sev->sev_policy, npages * vm->page_size / 1024);
 
 	return sev;
+}
+
+struct sev_vm *sev_vm_create(uint32_t policy, uint64_t npages)
+{
+	return sev_vm_create_with_flags(policy, npages, 0);
 }
 
 void sev_vm_launch(struct sev_vm *sev)
