@@ -4280,6 +4280,10 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 
 	fault->gfn = fault->addr >> PAGE_SHIFT;
 	fault->slot = kvm_vcpu_gfn_to_memslot(vcpu, fault->gfn);
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM_TESTING
+	fault->is_private = kvm_slot_can_be_private(fault->slot) &&
+			kvm_mem_is_private(vcpu->kvm, fault->gfn);
+#endif
 
 	if (page_fault_handle_page_track(vcpu, fault))
 		return RET_PF_EMULATE;

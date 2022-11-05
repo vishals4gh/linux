@@ -1750,7 +1750,7 @@ static void kvm_replace_memslot(struct kvm *kvm,
 
 bool __weak kvm_arch_has_private_mem(struct kvm *kvm)
 {
-	return false;
+	return IS_ENABLED(CONFIG_HAVE_KVM_PRIVATE_MEM_TESTING);
 }
 
 static int check_memory_region_flags(struct kvm *kvm,

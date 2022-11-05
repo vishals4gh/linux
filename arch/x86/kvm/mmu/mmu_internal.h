@@ -188,7 +188,6 @@ struct kvm_page_fault {
 
 	/* Derived from mmu and global state.  */
 	const bool is_tdp;
-	const bool is_private;
 	const bool nx_huge_page_workaround_enabled;
 
 	/*
@@ -220,6 +219,9 @@ struct kvm_page_fault {
 
 	/* The memslot containing gfn. May be NULL. */
 	struct kvm_memory_slot *slot;
+
+	/* Derived from encryption bits of the faulting GPA for CVMs. */
+	bool is_private;
 
 	/* Outputs of kvm_faultin_pfn.  */
 	kvm_pfn_t pfn;
