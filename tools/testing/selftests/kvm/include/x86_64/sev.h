@@ -19,4 +19,8 @@ bool is_kvm_sev_supported(void);
 struct kvm_vm *vm_sev_create_with_one_vcpu(uint32_t policy, void *guest_code,
 					   struct kvm_vcpu **cpu);
 
+struct kvm_vm *sev_vm_init_with_one_vcpu(uint32_t policy, void *guest_code,
+					   struct kvm_vcpu **cpu);
+
+void sev_vm_finalize(struct kvm_vm *vm, uint32_t policy);
 #endif /* SELFTEST_KVM_SEV_H */

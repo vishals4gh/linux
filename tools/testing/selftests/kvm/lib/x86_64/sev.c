@@ -215,7 +215,7 @@ static void sev_vm_measure(struct kvm_vm *vm)
 	pr_debug("\n");
 }
 
-struct kvm_vm *vm_sev_create_with_one_vcpu(uint32_t policy, void *guest_code,
+struct kvm_vm *sev_vm_init_with_one_vcpu(uint32_t policy, void *guest_code,
 					   struct kvm_vcpu **cpu)
 {
 	enum vm_guest_mode mode = VM_MODE_PXXV48_4K;
@@ -231,14 +231,28 @@ struct kvm_vm *vm_sev_create_with_one_vcpu(uint32_t policy, void *guest_code,
 	*cpu = vm_vcpu_add(vm, 0, guest_code);
 	kvm_vm_elf_load(vm, program_invocation_name);
 
+	pr_info("SEV guest created, policy: 0x%x, size: %lu KB\n", policy,
+		nr_pages * vm->page_size / 1024);
+	return vm;
+}
+
+void sev_vm_finalize(struct kvm_vm *vm, uint32_t policy)
+{
 	sev_vm_launch(vm, policy);
 
 	sev_vm_measure(vm);
 
 	sev_vm_launch_finish(vm);
+}
 
-	pr_info("SEV guest created, policy: 0x%x, size: %lu KB\n", policy,
-		nr_pages * vm->page_size / 1024);
+struct kvm_vm *vm_sev_create_with_one_vcpu(uint32_t policy, void *guest_code,
+					   struct kvm_vcpu **cpu)
+{
+	struct kvm_vm *vm;
+
+	vm = sev_vm_init_with_one_vcpu(policy, guest_code, cpu);
+
+	sev_vm_finalize(vm, policy);
 
 	return vm;
 }
