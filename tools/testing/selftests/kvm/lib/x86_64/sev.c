@@ -195,7 +195,7 @@ static void configure_sev_pte_masks(struct kvm_vm *vm)
 	cpuid(CPUID_MEM_ENC_LEAF, &eax, &ebx, &ecx, &edx);
 	enc_bit = ebx & CPUID_EBX_CBIT_MASK;
 
-	vm->arch.c_bit = 1 << enc_bit;
+	vm->arch.c_bit = 1ULL << enc_bit;
 	vm->arch.pte_me_mask = vm->arch.c_bit | vm->arch.s_bit;
 	vm->protected = true;
 }
