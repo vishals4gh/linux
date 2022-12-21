@@ -197,6 +197,7 @@ static void configure_sev_pte_masks(struct kvm_vm *vm)
 
 	vm->arch.c_bit = 1ULL << enc_bit;
 	vm->arch.pte_me_mask = vm->arch.c_bit | vm->arch.s_bit;
+	vm->gpa_protected_mask = vm->arch.c_bit | vm->arch.s_bit;
 	vm->protected = true;
 }
 
