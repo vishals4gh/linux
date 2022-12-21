@@ -24,7 +24,7 @@
 static inline uint64_t __kvm_hypercall_map_gpa_range(uint64_t gpa, uint64_t size,
 	uint64_t flags)
 {
-	return kvm_hypercall(KVM_HC_MAP_GPA_RANGE, gpa, size >> PAGE_SHIFT, flags, 0);
+	return kvm_native_hypercall(KVM_HC_MAP_GPA_RANGE, gpa, size >> PAGE_SHIFT, flags, 0);
 }
 
 static inline void kvm_hypercall_map_gpa_range(uint64_t gpa, uint64_t size,
