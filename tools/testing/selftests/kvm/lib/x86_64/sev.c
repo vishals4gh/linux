@@ -215,6 +215,8 @@ static void sev_vm_measure(struct kvm_vm *vm)
 	pr_debug("\n");
 }
 
+#define GUEST_PGT_MIN_VADDR     0x10000
+
 struct kvm_vm *sev_vm_init_with_one_vcpu(uint32_t policy, void *guest_code,
 					   struct kvm_vcpu **cpu)
 {
@@ -224,6 +226,7 @@ struct kvm_vm *sev_vm_init_with_one_vcpu(uint32_t policy, void *guest_code,
 
 	vm = ____vm_create(mode, nr_pages);
 
+	vm_set_pgt_alloc_tracking(vm);
 	kvm_sev_ioctl(vm, KVM_SEV_INIT, NULL);
 
 	configure_sev_pte_masks(vm);
@@ -238,6 +241,8 @@ struct kvm_vm *sev_vm_init_with_one_vcpu(uint32_t policy, void *guest_code,
 
 void sev_vm_finalize(struct kvm_vm *vm, uint32_t policy)
 {
+	vm_map_page_table(vm, GUEST_PGT_MIN_VADDR);
+
 	sev_vm_launch(vm, policy);
 
 	sev_vm_measure(vm);
