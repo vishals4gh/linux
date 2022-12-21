@@ -276,6 +276,45 @@ static uint64_t *guest_code_get_pte(uint64_t vaddr)
 	return (uint64_t *)&pte[index[0]];
 }
 
+static void guest_code_change_region_prot(void *vaddr_start, uint64_t mem_size,
+	bool private)
+{
+	uint64_t vaddr = (uint64_t)vaddr_start;
+	uint32_t num_pages;
+
+	GUEST_ASSERT(gpgt_info != NULL);
+	uint32_t guest_page_size = gpgt_info->page_size;
+
+	GUEST_ASSERT(!(mem_size % guest_page_size) && !(vaddr % guest_page_size));
+	GUEST_ASSERT(gpgt_info->enc_mask | gpgt_info->shared_mask);
+
+	num_pages = mem_size / guest_page_size;
+	for (uint32_t i = 0; i < num_pages; i++) {
+		uint64_t *pte = guest_code_get_pte(vaddr);
+
+		GUEST_ASSERT(pte);
+		if (private) {
+			*pte &= ~(gpgt_info->shared_mask);
+			*pte |= gpgt_info->enc_mask;
+		} else {
+			*pte &= ~(gpgt_info->enc_mask);
+			*pte |= gpgt_info->shared_mask;
+		}
+		asm volatile("invlpg (%0)" :: "r"(vaddr) : "memory");
+		vaddr += guest_page_size;
+	}
+}
+
+void guest_set_region_shared(void *vaddr, uint64_t size)
+{
+	guest_code_change_region_prot(vaddr, size, /* shared */ false);
+}
+
+void guest_set_region_private(void *vaddr, uint64_t size)
+{
+	guest_code_change_region_prot(vaddr, size, /* private */ true);
+}
+
 void sync_vm_gpgt_info(struct kvm_vm *vm, vm_vaddr_t pgt_info)
 {
 	gpgt_info = (struct guest_pgt_info *)pgt_info;

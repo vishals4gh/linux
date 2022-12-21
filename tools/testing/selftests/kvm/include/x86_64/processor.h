@@ -945,6 +945,10 @@ void vcpu_init_descriptor_tables(struct kvm_vcpu *vcpu);
 void vm_install_exception_handler(struct kvm_vm *vm, int vector,
 			void (*handler)(struct ex_regs *));
 
+void guest_set_region_shared(void *vaddr, uint64_t size);
+
+void guest_set_region_private(void *vaddr, uint64_t size);
+
 /* If a toddler were to say "abracadabra". */
 #define KVM_EXCEPTION_MAGIC 0xabacadabaULL
 
