@@ -20,6 +20,9 @@
 
 vm_vaddr_t exception_handlers;
 
+static bool is_cpu_vendor_intel;
+static bool is_cpu_vendor_amd;
+
 static void regs_dump(FILE *stream, struct kvm_regs *regs, uint8_t indent)
 {
 	fprintf(stream, "%*srax: 0x%.16llx rbx: 0x%.16llx "
@@ -1017,18 +1020,36 @@ void kvm_x86_state_cleanup(struct kvm_x86_state *state)
 	free(state);
 }
 
-static bool cpu_vendor_string_is(const char *vendor)
+static void check_cpu_vendor(void)
 {
-	const uint32_t *chunk = (const uint32_t *)vendor;
+	const char *intel_id = "GenuineIntel";
+	const uint32_t *intel_id_chunks = (const uint32_t *)intel_id;
+	const char *amd_id = "AuthenticAMD";
+	const uint32_t *amd_id_chunks = (const uint32_t *)amd_id;
+	static bool cpu_vendor_checked;
 	uint32_t eax, ebx, ecx, edx;
 
+	if (cpu_vendor_checked)
+		return;
+
 	cpuid(0, &eax, &ebx, &ecx, &edx);
-	return (ebx == chunk[0] && edx == chunk[1] && ecx == chunk[2]);
+
+	if (ebx == intel_id_chunks[0] && edx == intel_id_chunks[1] &&
+		ecx == intel_id_chunks[2])
+		is_cpu_vendor_intel = true;
+	else {
+		if (ebx == amd_id_chunks[0] && edx == amd_id_chunks[1] &&
+			ecx == amd_id_chunks[2])
+			is_cpu_vendor_amd = true;
+	}
+	cpu_vendor_checked = true;
 }
 
 bool is_intel_cpu(void)
 {
-	return cpu_vendor_string_is("GenuineIntel");
+	check_cpu_vendor();
+
+	return is_cpu_vendor_intel;
 }
 
 /*
@@ -1036,7 +1057,9 @@ bool is_intel_cpu(void)
  */
 bool is_amd_cpu(void)
 {
-	return cpu_vendor_string_is("AuthenticAMD");
+	check_cpu_vendor();
+
+	return is_cpu_vendor_amd;
 }
 
 void kvm_get_cpu_address_width(unsigned int *pa_bits, unsigned int *va_bits)
