@@ -12,4 +12,7 @@
 void execute_vm_with_private_test_mem(
 			enum vm_mem_backing_src_type test_mem_src);
 
+void execute_sev_vm_with_private_test_mem(
+			enum vm_mem_backing_src_type test_mem_src);
+
 #endif /* SELFTEST_KVM_PRIVATE_MEM_TEST_HELPER_H */

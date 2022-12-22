@@ -22,6 +22,9 @@
 #include <private_mem.h>
 #include <private_mem_test_helper.h>
 #include <processor.h>
+#include <sev.h>
+
+static bool is_guest_sev_vm;
 
 #define TEST_AREA_SLOT		10
 #define TEST_AREA_GPA		0xC0000000
@@ -104,6 +107,8 @@ static void guest_conv_test_fn(void)
 	GUEST_ASSERT(verify_test_area(test_area_base, TEST_MEM_DATA_PATTERN1,
 		TEST_MEM_DATA_PATTERN1));
 
+	if (is_guest_sev_vm)
+		guest_set_region_shared(guest_test_mem, guest_test_size);
 	kvm_hypercall_map_shared((uint64_t)guest_test_mem, guest_test_size);
 
 	populate_guest_test_mem(guest_test_mem, TEST_MEM_DATA_PATTERN2);
@@ -111,6 +116,9 @@ static void guest_conv_test_fn(void)
 	GUEST_SYNC(GUEST_SHARED_MEM_POPULATED);
 	GUEST_ASSERT(verify_test_area(test_area_base, TEST_MEM_DATA_PATTERN1,
 		TEST_MEM_DATA_PATTERN5));
+
+	if (is_guest_sev_vm)
+		guest_set_region_private(guest_test_mem, guest_test_size);
 
 	kvm_hypercall_map_private((uint64_t)guest_test_mem, guest_test_size);
 
@@ -170,14 +178,19 @@ static void host_conv_test_fn(struct kvm_vm *vm, struct kvm_vcpu *vcpu)
 	ASSERT_GUEST_DONE(vcpu);
 }
 
-void execute_vm_with_private_test_mem(
-			enum vm_mem_backing_src_type test_mem_src)
+static void execute_private_mem_test(enum vm_mem_backing_src_type test_mem_src,
+	bool is_sev_vm)
 {
 	struct kvm_vm *vm;
 	struct kvm_enable_cap cap;
 	struct kvm_vcpu *vcpu;
 
-	vm = vm_create_with_one_vcpu(&vcpu, guest_conv_test_fn);
+	if (is_sev_vm)
+		vm = sev_vm_init_with_one_vcpu(SEV_POLICY_NO_DBG,
+			guest_conv_test_fn, &vcpu);
+	else
+		vm = vm_create_with_one_vcpu(&vcpu, guest_conv_test_fn);
+	TEST_ASSERT(vm, "VM creation failed\n");
 
 	vm_check_cap(vm, KVM_CAP_EXIT_HYPERCALL);
 	cap.cap = KVM_CAP_EXIT_HYPERCALL;
@@ -191,7 +204,25 @@ void execute_vm_with_private_test_mem(
 
 	virt_map(vm, TEST_AREA_GPA, TEST_AREA_GPA, TEST_AREA_SIZE/vm->page_size);
 
+	if (is_sev_vm) {
+		is_guest_sev_vm = true;
+		sync_global_to_guest(vm, is_guest_sev_vm);
+		sev_vm_finalize(vm, SEV_POLICY_NO_DBG);
+	}
+
 	host_conv_test_fn(vm, vcpu);
 
 	kvm_vm_free(vm);
+}
+
+void execute_vm_with_private_test_mem(
+			enum vm_mem_backing_src_type test_mem_src)
+{
+	execute_private_mem_test(test_mem_src, false);
+}
+
+void execute_sev_vm_with_private_test_mem(
+			enum vm_mem_backing_src_type test_mem_src)
+{
+	execute_private_mem_test(test_mem_src, true);
 }
