@@ -40,6 +40,7 @@
 /x86_64/set_sregs_test
 /x86_64/sev_all_boot_test
 /x86_64/sev_migrate_tests
+/x86_64/sev_private_mem_test
 /x86_64/smaller_maxphyaddr_emulation_test
 /x86_64/smm_test
 /x86_64/state_test
